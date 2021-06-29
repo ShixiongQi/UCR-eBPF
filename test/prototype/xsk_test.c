@@ -128,7 +128,7 @@ static struct config get_default_config() {
 		.queue_id = 0,
 		.batch_size = 64,
 		.xdp_flags = XDP_FLAGS_DRV_MODE,
-		.device_name = "test2",
+		.device_name = "test",
 		.xdp_program_path = "./kern.o"
 	};
 
@@ -244,8 +244,9 @@ static struct xsk_socket_info* create_socket(struct xsk_umem_info* umem) {
 	xsk->umem = umem;
 	socket_cfg.rx_size = DEFAULT_CONS_NUM_DESCS;
 	socket_cfg.tx_size = DEFAULT_PROD_NUM_DESCS;
-	socket_cfg.libbpf_flags = 0;
-	socket_cfg.xdp_flags = XDP_FLAGS_DRV_MODE;
+	// // We need to supply XSK_LIBBPF_FLAGS__INHIBIT_PROG_LOAD to load our own XDP programs
+	socket_cfg.libbpf_flags = XSK_LIBBPF_FLAGS__INHIBIT_PROG_LOAD ;
+	socket_cfg.xdp_flags = cfg.xdp_flags;
 	// The kernel will first try to use zero-copy copy.
 	// If zero-copy is not supported, it will fall back on using copy mode
 	// Of course, we can force a certain mode if we want to.
@@ -401,7 +402,7 @@ static void load_xdp_program(const char* path, const char* if_name, struct xsk_s
 		exit_with_error("xsks_map not found");
 	}
 
-	int key = 0, xsk_fd;
+	int key = cfg.queue_id, xsk_fd;
 	xsk_fd = xsk_socket__fd(xsk->xsk);
 	ret = bpf_map_update_elem(xsks_map, &key, &xsk_fd, 0);
 	if(ret != 0) {
@@ -421,7 +422,7 @@ int main() {
 	
 	struct xsk_socket_info* xsk = create_socket(umem);
 	setup_socket_options(xsk);
-	//load_xdp_program(cfg.xdp_program_path, cfg.device_name, xsk);
+	load_xdp_program(cfg.xdp_program_path, cfg.device_name, xsk);
 
 	rx_drop_all(xsk);
 
