@@ -24,51 +24,18 @@
 #include "extra_definitions.h"
 
 // the number of frames, default frame size is XSK_UMEM__DEFAULT_FRAME_SIZE, which is 4k
-#define DEFAULT_NUM_FRAMES    (4*1024)
-#define DEFAULT_FRAME_SIZE    XSK_UMEM__DEFAULT_FRAME_SIZE
 #define DEFAULT_PROD_NUM_DESCS    XSK_RING_PROD__DEFAULT_NUM_DESCS
 #define DEFAULT_CONS_NUM_DESCS    XSK_RING_CONS__DEFAULT_NUM_DESCS
 #define DEFAULT_HEADROOM   0
 #define DEFAULT_FLAGS    0
 
-typedef __u64 u64;
-typedef __u32 u32;
-typedef __u16 u16;
-typedef __u8  u8;
 
 
 struct xsk_ring_stats {
 	u64 rx_npkts;
 	u64 tx_npkts;
-	u64 rx_dropped_npkts;
-	u64 rx_invalid_npkts;
-	u64 tx_invalid_npkts;
-	u64 rx_full_npkts;
-	u64 rx_fill_empty_npkts;
-	u64 tx_empty_npkts;
-	u64 prev_rx_npkts;
-	u64 prev_tx_npkts;
-	u64 prev_rx_dropped_npkts;
-	u64 prev_rx_invalid_npkts;
-	u64 prev_tx_invalid_npkts;
-	u64 prev_rx_full_npkts;
-	u64 prev_rx_fill_empty_npkts;
-	u64 prev_tx_empty_npkts;
 };
 
-
-struct xsk_app_stats {
-	u64 rx_empty_polls;
-	u64 fill_fail_polls;
-	u64 copy_tx_sendtos;
-	u64 tx_wakeup_sendtos;
-	u64 opt_polls;
-	u64 prev_rx_empty_polls;
-	u64 prev_fill_fail_polls;
-	u64 prev_copy_tx_sendtos;
-	u64 prev_tx_wakeup_sendtos;
-	u64 prev_opt_polls;
-};
 
 struct xsk_driver_stats {
 	u64 intrs;
@@ -97,7 +64,6 @@ struct xsk_socket_info {
 	struct xsk_umem_info *umem;
 	struct xsk_socket *xsk;
 	struct xsk_ring_stats ring_stats;
-	struct xsk_app_stats app_stats;
 	struct xsk_driver_stats drv_stats;
 	u32 outstanding_tx;
 };
@@ -113,14 +79,6 @@ struct config {
 
 static struct config cfg;
 static bool should_exit = false;
-
-
-static void __exit_with_error(const char* error, const char* file, const char* func, int line) {
-    fprintf(stderr, "error: %s \n  at %s %d %s\n", error, file, line, func);
-    exit(EXIT_FAILURE);
-}
-
-#define exit_with_error(error)  __exit_with_error(error, __FILE__, __func__, __LINE__)
 
 
 static struct config get_default_config() {
@@ -228,6 +186,12 @@ static struct xsk_umem_info* create_umem() {
 	xsk_ring_prod__submit(&umem->fq, DEFAULT_PROD_NUM_DESCS);
 
     return umem;
+}
+
+
+// get a previously created umem by other process
+static struct xsk_umem_info* get_umem() {
+
 }
 
 
