@@ -13,7 +13,11 @@
 #include <sys/stat.h>
 #include <fcntl.h>
 #include <sys/types.h>
+#ifdef __cplusplus
+    enum bpf_stats_type {};
+#endif
 #include <bpf/bpf.h>
+#include <bits/stdc++.h>
 #include "extra_definitions.h"
 
 
@@ -26,6 +30,7 @@ struct umem_info {
 static struct umem_info* umem;
 
 static int should_exit = 0;
+static std::mutex mtx;
 
 static void int_exit(int sig) {
 	should_exit = 1;
@@ -40,7 +45,7 @@ static void* exit_checker(void* arguments) {
 }
 
 static void create_umem() {
-    umem = calloc(1, sizeof(struct umem_info));
+    umem = (struct umem_info*)calloc(1, sizeof(struct umem_info));
     if(!umem) {
         exit_with_error("memory allocation failed");
     }
@@ -53,12 +58,12 @@ static void create_umem() {
         exit_with_error("shm_open failed");
     }
 
-    int ret = ftruncate(fd, DEFAULT_FRAME_SIZE * DEFAULT_NUM_FRAMES);
+    int ret = ftruncate(fd, DEFAULT_UMEM_SIZE);
     if(ret != 0) {
         exit_with_error("ftruncate failed");
     }
 
-    umem->buffer = mmap(NULL, DEFAULT_FRAME_SIZE * DEFAULT_NUM_FRAMES, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+    umem->buffer = mmap(NULL, DEFAULT_UMEM_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
     if(umem->buffer == MAP_FAILED) {
         exit_with_error("mmap failed");
     }
@@ -66,18 +71,21 @@ static void create_umem() {
 
 // allocate a umem frame, return the descriptor
 static u64 alloc_frame() {
+    mtx.lock();
 	if(umem->free_frame_cnt == 0) {
 		exit_with_error("umem frame allocation failed");
 	}
 
 	u64 frame = umem->free_frames_array[--umem->free_frame_cnt];
 	//printf("allocate %p\n", (void*)frame);
+    mtx.unlock();
 	return frame;
 }
 
 
 // free a umem frame.
 static void free_frame(u64 frame) {
+    mtx.lock();
 	// based on my experiment, it seems that rx ring does not always return aligned address
 	frame = frame & (~(DEFAULT_FRAME_SIZE-1));
 	if(umem->free_frame_cnt == DEFAULT_NUM_FRAMES) {
@@ -85,12 +93,13 @@ static void free_frame(u64 frame) {
 	}
 	umem->free_frames_array[umem->free_frame_cnt++] = frame;
 	//printf("free %p\n", (void*)frame);
+    mtx.unlock();
 }
 
 
 // the thread function that will serve a client's api call
 static void* serve_client(void* arguments) {
-    int client_fd = (int)arguments;
+    int client_fd = (int)(size_t)arguments;
     u8 buffer[DEFAULT_SOCKET_MAX_BUFFER_SIZE];
     while(1) {
         int ret = recv(client_fd, buffer, sizeof(buffer), MSG_WAITALL);

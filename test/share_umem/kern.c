@@ -13,15 +13,13 @@ struct bpf_map_def SEC("maps") xsks_map = {
 	.max_entries = 64
 };
 
-static unsigned int rr;
 
 SEC("xdp_sock")
 int xdp_sock_prog(struct xdp_md *ctx)
 {	
-	rr = (rr + 1) & (NUM_SOCKS - 1);
     int index = ctx->rx_queue_index;
-	if(bpf_map_lookup_elem(&xsks_map, &rr)) {
-        return bpf_redirect_map(&xsks_map, rr, 0);
+	if(bpf_map_lookup_elem(&xsks_map, &index)) {
+        return bpf_redirect_map(&xsks_map, index, 0);
     }
 
 	return XDP_PASS;
