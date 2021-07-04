@@ -80,6 +80,7 @@ struct config {
 	u32 xdp_flags;
 	const char* device_name;
 	const char* xdp_program_path;
+	int opt_send;
 };
 
 static struct config cfg;
@@ -96,8 +97,8 @@ static struct config get_default_config() {
 		.queue_id = 0,
 		.batch_size = 64,
 		.xdp_flags = XDP_FLAGS_DRV_MODE,
-		.device_name = "test",
-		.xdp_program_path = "./kern.o"
+		.xdp_program_path = "./kern.o",
+		.opt_send = 0
 	};
 
 	return cfg;
@@ -251,6 +252,10 @@ static void clear_complete_ring() {
     u32 idx;
     u32 num_sent = xsk_ring_cons__peek(&xsk.umem->cq, DEFAULT_CLIENT_FRAMES, &idx);
     if(num_sent > 0) {
+		printf("clear complete packet %d\n", num_sent);
+		for(u32 i=0; i<num_sent; i++) {
+			free_frame(*xsk_ring_cons__comp_addr(&xsk.umem->cq, idx++));
+		}
         xsk_ring_cons__release(&xsk.umem->cq, num_sent);
         xsk.ring_stats.outstanding_rx -= num_sent;
     }
@@ -276,11 +281,28 @@ static void tx_send(u64 addr, u32 len) {
 // return 0 if the space of packet need to be freed
 static int handle_udp_packet(struct pkt_context* ctx) {
     printf("UDP\n");
-	int ret = inet_pton(AF_INET6, "fc00:dead:cafe:2::1", &ctx->ipv6->daddr);
-	if(ret != 1) {
-		exit_with_error("inet_pton failed");
+	if(cfg.opt_send == 0) {
+		return 0;
 	}
+	// swap MAC
+	u8 tmp_mac[ETH_ALEN];
+	memcpy(tmp_mac, ctx->eth->h_dest, ETH_ALEN);
+	memcpy(ctx->eth->h_dest, ctx->eth->h_source, ETH_ALEN);
+	memcpy(ctx->eth->h_source, tmp_mac, ETH_ALEN);
+	
+	// swap IP
+	struct in6_addr tmp_ip;
+	memcpy(&tmp_ip, &ctx->ipv6->saddr, sizeof(tmp_ip));
+	memcpy(&ctx->ipv6->saddr, &ctx->ipv6->daddr, sizeof(tmp_ip));
+	memcpy(&ctx->ipv6->daddr, &tmp_ip, sizeof(tmp_ip));
+	// int ret = inet_pton(AF_INET6, "fc00:dead:cafe:1::2", &ctx->ipv6->daddr);
+	// if(ret != 1) {
+	// 	exit_with_error("inet_pton failed");
+	// }
 	tx_send(ctx->desc->addr, ctx->desc->len);
+	// if in copy mode, tx is driven by a syscall
+	sendto(xsk_socket__fd(xsk.xsk), NULL, 0, MSG_DONTWAIT, NULL, 0);
+	
 	return 1;
 }
 
@@ -310,7 +332,7 @@ static int handle_packet(const struct xdp_desc* desc) {
 	struct pkt_context ctx;
 	ctx.desc = desc;
 	ctx.pkt = xsk_umem__get_data(xsk.umem->buffer, desc->addr);
-	printf("addr: %p length: %d\n", ctx.pkt, desc->len);
+	//printf("addr: %p length: %d\n", ctx.pkt, desc->len);
 
 	ctx.eth = (struct ethhdr*)ctx.pkt;
 	u16 proto = ntohs(ctx.eth->h_proto);
@@ -358,7 +380,7 @@ static void rx_resend() {
 	if(rx_num == 0) {
 		return;
 	}
-	
+
 	fill_fill_ring();
 	
 	xsk.ring_stats.rx_npkts += rx_num;
@@ -429,6 +451,11 @@ static void load_xdp_program(const char* path, const char* if_name) {
 
 
 int main(int argc, char* argv[]) {
+	if(argc < 2) {
+		printf("usage: ./worker {dev_name} [--send]\n");
+		return 0;
+	}
+
     signal(SIGINT, int_exit);
 	signal(SIGTERM, int_exit);
 
@@ -450,6 +477,14 @@ int main(int argc, char* argv[]) {
     }
 
     cfg = get_default_config();
+	cfg.device_name = argv[1];
+	printf("device name: %s\n", argv[1]);
+
+	if(argc >= 3 && strcmp(argv[2], "--send") == 0) {
+		printf("resend packet\n");
+		cfg.opt_send = 1;
+	}
+
     struct xsk_umem_info* umem = create_umem();
 
     create_socket(umem);
