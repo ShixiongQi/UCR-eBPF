@@ -29,6 +29,8 @@
 #include <signal.h>
 #include <fcntl.h>
 #include <sys/resource.h>
+#include <errno.h>
+#include <time.h>
 #include "extra_definitions.h"
 
 struct xsk_ring_stats {
@@ -104,6 +106,24 @@ static struct config get_default_config() {
 	return cfg;
 }
 
+
+static void get_monotonic_time(struct timespec* ts) {
+    clock_gettime(CLOCK_MONOTONIC, ts);
+}
+
+static long get_time_nano(struct timespec* ts) {
+    return (long)ts->tv_sec * 1e9 + ts->tv_nsec;
+}
+
+static double get_elapsed_time_sec(struct timespec* before, struct timespec* after) {
+    double deltat_s  = after->tv_sec - before->tv_sec;
+    double deltat_ns = after->tv_nsec - before->tv_nsec;
+    return deltat_s + deltat_ns*1e-9;
+}
+
+static long get_elapsed_time_nano(struct timespec* before, struct timespec* after) {
+    return get_time_nano(after) - get_time_nano(before);
+}
 
 // allocate a umem frame, return the descriptor
 static u64 alloc_frame() {
@@ -252,7 +272,7 @@ static void clear_complete_ring() {
     u32 idx;
     u32 num_sent = xsk_ring_cons__peek(&xsk.umem->cq, DEFAULT_CLIENT_FRAMES, &idx);
     if(num_sent > 0) {
-		printf("clear complete packet %d\n", num_sent);
+		// printf("clear complete packet %d\n", num_sent);
 		for(u32 i=0; i<num_sent; i++) {
 			free_frame(*xsk_ring_cons__comp_addr(&xsk.umem->cq, idx++));
 		}
@@ -280,7 +300,7 @@ static void tx_send(u64 addr, u32 len) {
 
 // return 0 if the space of packet need to be freed
 static int handle_udp_packet(struct pkt_context* ctx) {
-    printf("UDP\n");
+    // printf("UDP\n");
 	if(cfg.opt_send == 0) {
 		return 0;
 	}
@@ -299,22 +319,27 @@ static int handle_udp_packet(struct pkt_context* ctx) {
 	// if(ret != 1) {
 	// 	exit_with_error("inet_pton failed");
 	// }
+	struct timespec ts;
+	get_monotonic_time(&ts);
+	long timestamp = get_time_nano(&ts);
+	printf("send %ld\n", timestamp);
 	tx_send(ctx->desc->addr, ctx->desc->len);
 	// if in copy mode, tx is driven by a syscall
-	sendto(xsk_socket__fd(xsk.xsk), NULL, 0, MSG_DONTWAIT, NULL, 0);
-	
+	ssize_t ret = sendto(xsk_socket__fd(xsk.xsk), NULL, 0, MSG_DONTWAIT, NULL, 0);
+	// printf("sendto returns %ld errno is %d\n", ret, errno);
+
 	return 1;
 }
 
 // return 0 if the space of packet need to be freed
 static int handle_ip_packet(struct pkt_context* ctx) {
-	printf("IP\n");
+	// printf("IP\n");
     return 0;
 }
 
 //// return 0 if the space of packet need to be freed
 static int handle_ipv6_packet(struct pkt_context* ctx) {
-	printf("IPV6\n");
+	// printf("IPV6\n");
     u8 protocol = ctx->ipv6->nexthdr;
     switch(protocol) {
         case IPPROTO_UDP:
@@ -381,10 +406,14 @@ static void rx_resend() {
 		return;
 	}
 
+	struct timespec ts;
+	get_monotonic_time(&ts);
+	long timestamp = get_time_nano(&ts);
+	printf("receive %lld %ld\n", xsk.ring_stats.rx_npkts, timestamp);
 	fill_fill_ring();
 	
 	xsk.ring_stats.rx_npkts += rx_num;
-	printf("received %d packets\n", rx_num);
+	// printf("received %d packets\n", rx_num);
 	// process the data packet here
 	for(u32 i = 0; i<rx_num; i++) {
 		const struct xdp_desc* desc = xsk_ring_cons__rx_desc(&xsk.rx, rx_index);
@@ -402,9 +431,9 @@ static void rx_resend() {
 
 // process packets on rx ring in a loop
 static void rx_loop() {
-	struct pollfd fd;
-	fd.fd = xsk_socket__fd(xsk.xsk);
-	fd.events = POLLIN;
+	// struct pollfd fd;
+	// fd.fd = xsk_socket__fd(xsk.xsk);
+	// fd.events = POLLIN;
 
 	while(!should_exit) {
 		rx_resend();
@@ -488,7 +517,7 @@ int main(int argc, char* argv[]) {
     struct xsk_umem_info* umem = create_umem();
 
     create_socket(umem);
-	setup_socket_options();
+	//setup_socket_options();
 	load_xdp_program(cfg.xdp_program_path, cfg.device_name);
 
     rx_loop();
