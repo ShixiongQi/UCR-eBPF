@@ -234,6 +234,7 @@ static void create_socket(struct xsk_umem_info* umem) {
 	socket_cfg.bind_flags = 0; //XDP_USE_NEED_WAKEUP | XDP_ZEROCOPY;
 
 	int ret = xsk_socket__create(&xsk.xsk, cfg.device_name, cfg.queue_id, xsk.umem->umem, &xsk.rx, &xsk.tx, &socket_cfg);
+	
 	if(ret) {
 		exit_with_error("xsk_socket__create failed");
 	}

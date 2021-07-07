@@ -5,10 +5,6 @@ typedef unsigned short __sum16;
 #include <linux/bpf.h>
 #include <bpf/bpf_helpers.h>
 
-/* This XDP program is only needed for the XDP_SHARED_UMEM mode.
- * If you do not use this mode, libbpf can supply an XDP program for you.
- */
-#define NUM_SOCKS 2
 
 struct bpf_map_def SEC("maps") xsks_map = {
 	.type = BPF_MAP_TYPE_XSKMAP,
