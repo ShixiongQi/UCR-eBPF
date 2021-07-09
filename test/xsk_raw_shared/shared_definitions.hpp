@@ -37,6 +37,7 @@
 #include <sys/resource.h>
 #include <sys/stat.h>
 #include <sys/types.h>
+#include <sys/syscall.h>
 #include <bpf/bpf.h>
 #include <bpf/xsk.h>
 #include <bpf/libbpf.h>
@@ -54,6 +55,10 @@
 
 #ifndef SO_BUSY_POLL_BUDGET
 #define SO_BUSY_POLL_BUDGET 70
+#endif
+
+#ifndef __NR_pidfd_getfd
+#define __NR_pidfd_getfd 438
 #endif
 
 
@@ -83,8 +88,15 @@ constexpr int DEFAULT_UMEM_FLAGS = 0;
 constexpr const char* DEFAULT_SOCKET_PATH = "/tmp/share_umem_manager.socket";
 constexpr int DEFAULT_SOCKET_MAX_BUFFER_SIZE = 32;
 
-constexpr const int REQUEST_ALLOC = 1;
-constexpr const int REQUEST_DEALLOC = 2;
+enum class RequestType : u32 {
+	// In: none Out: u64
+	ALLOC,
+	// In: u64 Out: none
+	DEALLOC,
+	// In: none Out: int(pid_t) and int
+	GET_PID_FD,
+	MAX
+};
 
 
 // the queue for fill ring and complete ring
@@ -161,18 +173,38 @@ struct xdp_umem_queue {
 };
 
 
-// struct containing information for umem
-struct xdp_umem {
+// struct containing information for shared umem
+struct xdp_umem_shared {
 	u8* frames;
-	// the fill ring
-	struct xdp_umem_queue fr;
-	// the completion ring
-	struct xdp_umem_queue cr;
-    int fd;
-
+	int fd;
 	// get packet data from addr in descriptor of rx ring
 	inline u8* get_data(u64 addr) {
 		return &frames[addr];
+	}
+	void map_shared_memory() {
+		int mem_fd = shm_open(DEFAULT_UMEM_FILE_NAME, O_RDWR, 0);
+		assert(mem_fd >= 0);
+
+		frames = (u8*)mmap(nullptr, DEFAULT_UMEM_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED, mem_fd, 0);
+		assert(frames != MAP_FAILED);
+	}
+
+	void get_shared_fd(int client_fd) {
+		u8 buffer[DEFAULT_SOCKET_MAX_BUFFER_SIZE];
+		*(reinterpret_cast<u32*>(buffer)) = static_cast<u32>(RequestType::GET_PID_FD);
+		int ret = send(client_fd, buffer, sizeof(u32), MSG_EOR);
+		assert(ret != -1);
+		ret = recv(client_fd, buffer, sizeof(buffer), 0);
+		assert(ret != -1);
+		assert(ret != 0);
+
+		pid_t pid = *(reinterpret_cast<pid_t*>(buffer));
+		int remote_fd = *(reinterpret_cast<int*>(buffer + sizeof(pid_t)));
+		int pidfd = syscall(SYS_pidfd_open, pid, 0);
+		assert(pidfd != -1);
+
+		fd = syscall(__NR_pidfd_getfd, pidfd, remote_fd, 0);
+		assert(fd != -1);
 	}
 };
 
@@ -239,19 +271,72 @@ struct xdp_queue {
 
 // struct containing information for a socket
 struct xdp_sock {
-	struct xdp_umem *umem;
+	struct xdp_umem_shared *umem;
 	// the rx ring
 	struct xdp_queue rxr;
 	// the tx ring
 	struct xdp_queue txr;
 	int fd;
+
+	void create() {
+		fd = socket(AF_XDP, SOCK_RAW, 0);
+		assert(fd != -1);
+
+		int rx_ring_size = DEFAULT_RX_RING_SIZE;
+		int tx_ring_size = DEFAULT_TX_RING_SIZE;
+		int ret = setsockopt(fd, SOL_XDP, XDP_RX_RING, &rx_ring_size, sizeof(int));
+		assert(ret == 0);
+		ret = setsockopt(fd, SOL_XDP, XDP_TX_RING, &tx_ring_size, sizeof(int));
+		assert(ret == 0);
+
+		struct xdp_mmap_offsets off;
+		socklen_t optlen = sizeof(off);
+		ret = getsockopt(fd, SOL_XDP, XDP_MMAP_OFFSETS, &off, &optlen);
+		assert(ret == 0);
+		
+		// rx ring
+		rxr.map = reinterpret_cast<u8*>(mmap(0, off.rx.desc + DEFAULT_RX_RING_SIZE * sizeof(xdp_desc),
+						PROT_READ | PROT_WRITE,
+						MAP_SHARED | MAP_POPULATE, fd,
+						XDP_PGOFF_RX_RING));
+		assert(rxr.map != MAP_FAILED);
+
+		rxr.mask = DEFAULT_RX_RING_SIZE - 1;
+		rxr.size = DEFAULT_RX_RING_SIZE;
+		rxr.producer = reinterpret_cast<u32*>(rxr.map + off.rx.producer);
+		rxr.consumer = reinterpret_cast<u32*>(rxr.map + off.rx.consumer);
+		rxr.ring = reinterpret_cast<xdp_desc*>(rxr.map + off.rx.desc);
+
+
+		// tx ring
+		txr.map = reinterpret_cast<u8*>(mmap(0, off.tx.desc + DEFAULT_TX_RING_SIZE * sizeof(xdp_desc),
+						PROT_READ | PROT_WRITE,
+						MAP_SHARED | MAP_POPULATE, fd,
+						XDP_PGOFF_TX_RING));
+		assert(txr.map != MAP_FAILED);
+
+		txr.mask = DEFAULT_TX_RING_SIZE - 1;
+		txr.size = DEFAULT_TX_RING_SIZE;
+		txr.producer = reinterpret_cast<u32*>(txr.map + off.tx.producer);
+		txr.consumer = reinterpret_cast<u32*>(txr.map + off.tx.consumer);
+		txr.ring = reinterpret_cast<xdp_desc*>(txr.map + off.tx.desc);
+		txr.cached_cons = DEFAULT_TX_RING_SIZE;
+	}
+
+	void bind_to_device(int if_index) {
+		// bind shared umem
+		struct sockaddr_xdp addr;
+		addr.sxdp_family = AF_XDP;
+		addr.sxdp_flags = XDP_SHARED_UMEM ;
+		addr.sxdp_ifindex = if_index;
+		addr.sxdp_queue_id = 0;
+		addr.sxdp_shared_umem_fd = umem->fd;
+
+		int ret = bind(fd, reinterpret_cast<const sockaddr*>(&addr), sizeof(addr));
+		assert(ret == 0);
+	}
 };
 
-// struct containing information for ebpf kernel program
-struct xdp_program {
-	struct bpf_object* obj;
-	int prog_fd;
-};
 
 // the context of a packet, used in packet parsing
 struct pkt_context {
@@ -264,3 +349,17 @@ struct pkt_context {
 };
 
 
+static void allow_unlimited_locking() {
+	struct rlimit lim = {
+		.rlim_cur = RLIM_INFINITY,
+		.rlim_max = RLIM_INFINITY
+	};
+
+	int ret = setrlimit(RLIMIT_MEMLOCK, &lim);
+	assert(ret == 0);
+}
+
+
+static void int_exit(int sig) {
+	exit(-1);
+}

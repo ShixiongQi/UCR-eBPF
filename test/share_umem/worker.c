@@ -225,7 +225,7 @@ static void create_socket(struct xsk_umem_info* umem) {
 	xsk.umem = umem;
 	socket_cfg.rx_size = DEFAULT_CLIENT_FRAMES;
 	socket_cfg.tx_size = DEFAULT_CLIENT_FRAMES;
-	// // We need to supply XSK_LIBBPF_FLAGS__INHIBIT_PROG_LOAD to load our own XDP programs
+	// We need to supply XSK_LIBBPF_FLAGS__INHIBIT_PROG_LOAD to load our own XDP programs
 	socket_cfg.libbpf_flags = XSK_LIBBPF_FLAGS__INHIBIT_PROG_LOAD ;
 	socket_cfg.xdp_flags = cfg.xdp_flags;
 	// The kernel will first try to use zero-copy copy.

@@ -248,6 +248,7 @@ static struct xdp_sock* create_socket(int if_index) {
 	sock->tx.size = DEFAULT_TX_RING_SIZE;
 	sock->tx.producer = sock->tx.map + off.tx.producer;
 	sock->tx.consumer = sock->tx.map + off.tx.consumer;
+	sock->tx.ring = sock->tx.map + off.tx.desc;
 	sock->tx.cached_cons = DEFAULT_TX_RING_SIZE;
 
 	// bind addr
