@@ -1,5 +1,4 @@
 #!/bin/bash
-cd ~
 mkdir kernel_update
 cd kernel_update
 
