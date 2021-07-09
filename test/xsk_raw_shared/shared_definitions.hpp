@@ -46,6 +46,7 @@
 #include <fcntl.h>
 #include <errno.h>
 #include <time.h>
+#include <bits/stdc++.h>
 
 #ifndef SO_PREFER_BUSY_POLL
 #define SO_PREFER_BUSY_POLL	69
@@ -96,6 +97,67 @@ struct xdp_umem_queue {
 	u32 *consumer;
 	u64 *ring;
 	u8 *map;
+
+	// return the number of free entries in umem fill ring
+	inline u32 fr_nb_free(u32 nb) {
+		u32 free_entries = cached_cons - cached_prod;
+
+		if(free_entries >= nb) {
+			return free_entries;
+		}
+
+		cached_cons = *consumer + size;
+		return cached_cons - cached_prod;
+	}
+
+	// return the number of usable entries in umem completion ring
+	inline u32 cr_nb_avail(u32 nb) {
+		u32 entries = cached_prod - cached_cons;
+
+		if(entries == 0) {
+			cached_prod = *producer;
+			entries = cached_prod - cached_cons;
+		}
+
+		return (entries > nb) ? nb : entries;
+	}
+
+	// enqueue descriptors into the fill ring
+	inline u32 fr_enq(u64 *d, u32 nb) {
+		if(fr_nb_free(nb) < nb) {
+			return -1;
+		}
+
+		for(u32 i = 0; i<nb; i++) {
+			u32 idx = cached_prod++ &mask;
+			ring[idx] = d[i];
+		}
+
+		u_smp_wmb();
+
+		*producer = cached_prod;
+
+		return nb;
+	}
+
+	// dequeue descriptors from the completion ring
+	inline u32 cr_deq(u64 *d, u32 nb) {
+		u32 entries = cr_nb_avail(nb);
+
+		u_smp_rmb();
+
+		for(u32 i = 0; i < entries; i++) {
+			u32 idx = cached_cons++ & mask;
+			d[i] = ring[idx];
+		}
+
+		if(entries > 0) {
+			u_smp_wmb();
+			*consumer = cached_cons;
+		}
+
+		return entries;
+	}
 };
 
 
@@ -103,10 +165,15 @@ struct xdp_umem_queue {
 struct xdp_umem {
 	u8* frames;
 	// the fill ring
-	struct xdp_umem_queue fq;
+	struct xdp_umem_queue fr;
 	// the completion ring
-	struct xdp_umem_queue cq;
+	struct xdp_umem_queue cr;
     int fd;
+
+	// get packet data from addr in descriptor of rx ring
+	inline u8* get_data(u64 addr) {
+		return &frames[addr];
+	}
 };
 
 
@@ -121,13 +188,62 @@ struct xdp_queue {
 	u32 *consumer;
 	struct xdp_desc *ring;
 	u8 *map;
+
+	// return the number of free entries in tx ring
+	inline u32 tx_nb_free(u32 nb) {
+		u32 free_entries = cached_cons - cached_prod;
+
+		if(free_entries >= nb) {
+			return free_entries;
+		}
+
+		cached_cons = *consumer + size;
+		return cached_cons - cached_prod;
+	}
+
+
+	// return the number of usable entries in tx ring
+	inline u32 rx_nb_avail(u32 nb) {
+		u32 entries = cached_prod - cached_cons;
+
+		if(entries == 0) {
+			cached_prod = *producer;
+			entries = cached_prod - cached_cons;
+		}
+
+		return (entries > nb) ? nb : entries;
+	}
+
+
+	// get descriptors from rx ring
+	inline u32 rx_deq(xdp_desc* descs, u32 ndescs) {
+		struct xdp_desc *r = ring;
+		u32 entries = rx_nb_avail(ndescs);
+
+		u_smp_rmb();
+
+		for(u32 i=0; i<entries; i++) {
+			u32 idx = cached_cons++ & mask;
+			descs[i] = r[idx];
+		}
+
+		if(entries > 0) {
+			u_smp_wmb();
+
+			*consumer = cached_cons;
+		}
+
+		return entries;
+	}
 };
 
 // struct containing information for a socket
 struct xdp_sock {
 	struct xdp_umem *umem;
-	struct xdp_queue rx;
-	struct xdp_queue tx;
+	// the rx ring
+	struct xdp_queue rxr;
+	// the tx ring
+	struct xdp_queue txr;
 	int fd;
 };
 
@@ -148,58 +264,3 @@ struct pkt_context {
 };
 
 
-
-
-
-// return the number of free entries in rx or tx ring
-static inline u32 xq_nb_free(struct xdp_queue *q, u32 nb) {
-	u32 free_entries = q->cached_cons - q->cached_prod;
-
-	if(free_entries >= nb) {
-		return free_entries;
-	}
-
-	q->cached_cons = *q->consumer + q->size;
-	return q->cached_cons - q->cached_prod;
-}
-
-
-// return the number of usable entries in rx or tx ring
-static inline u32 xq_nb_avail(struct xdp_queue *q, u32 nb) {
-	u32 entries = q->cached_prod - q->cached_cons;
-
-	if(entries == 0) {
-		q->cached_prod = *q->producer;
-		entries = q->cached_prod - q->cached_cons;
-	}
-
-	return (entries > nb) ? nb : entries;
-}
-
-
-
-// get packet data from descriptor in rx ring
-static inline void *xq_get_data(const struct xdp_sock *sock, u64 desc) {
-	return &sock->umem->frames[desc];
-}
-
-// get descriptors from rx ring
-static inline u32 xq_deq(struct xdp_queue* q, struct xdp_desc* descs, int ndescs) {
-	struct xdp_desc *r = q->ring;
-	u32 entries = xq_nb_avail(q, ndescs);
-
-	u_smp_rmb();
-
-	for(u32 i=0; i<entries; i++) {
-		u32 idx = q->cached_cons++ & q->mask;
-		descs[i] = r[idx];
-	}
-
-	if(entries > 0) {
-		u_smp_wmb();
-
-		*q->consumer = q->cached_cons;
-	}
-
-	return entries;
-}

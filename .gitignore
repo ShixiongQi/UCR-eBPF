@@ -1,2 +1,4 @@
 .vscode/
 /kernel_update/
+/xdp-tutorial/
+/libbpf/
