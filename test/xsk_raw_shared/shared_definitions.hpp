@@ -200,6 +200,7 @@ struct xdp_umem_shared {
 
 		pid_t pid = *(reinterpret_cast<pid_t*>(buffer));
 		int remote_fd = *(reinterpret_cast<int*>(buffer + sizeof(pid_t)));
+		// printf("pid: %d remote_fd: %d\n", pid, remote_fd);
 		int pidfd = syscall(SYS_pidfd_open, pid, 0);
 		assert(pidfd != -1);
 
@@ -271,7 +272,6 @@ struct xdp_queue {
 
 // struct containing information for a socket
 struct xdp_sock {
-	struct xdp_umem_shared *umem;
 	// the rx ring
 	struct xdp_queue rxr;
 	// the tx ring
@@ -279,9 +279,6 @@ struct xdp_sock {
 	int fd;
 
 	void create() {
-		fd = socket(AF_XDP, SOCK_RAW, 0);
-		assert(fd != -1);
-
 		int rx_ring_size = DEFAULT_RX_RING_SIZE;
 		int tx_ring_size = DEFAULT_TX_RING_SIZE;
 		int ret = setsockopt(fd, SOL_XDP, XDP_RX_RING, &rx_ring_size, sizeof(int));
@@ -323,15 +320,29 @@ struct xdp_sock {
 		txr.cached_cons = DEFAULT_TX_RING_SIZE;
 	}
 
-	void bind_to_device(int if_index) {
+	void bind_to_device_shared(int if_index, int shared_fd) {
 		// bind shared umem
-		struct sockaddr_xdp addr;
+		sockaddr_xdp addr;
 		addr.sxdp_family = AF_XDP;
-		addr.sxdp_flags = XDP_SHARED_UMEM ;
+		addr.sxdp_flags = XDP_SHARED_UMEM;
 		addr.sxdp_ifindex = if_index;
 		addr.sxdp_queue_id = 0;
-		addr.sxdp_shared_umem_fd = umem->fd;
+		addr.sxdp_shared_umem_fd = shared_fd;
 
+		int ret = bind(fd, reinterpret_cast<const sockaddr*>(&addr), sizeof(addr));
+		// printf("fd: %d shared_fd: %d\n", fd, shared_fd);
+		// printf("errno: %s\n", strerror(errno));
+		assert(ret == 0);
+	}
+
+	void bind_to_device(int if_index) {
+		sockaddr_xdp addr;
+		addr.sxdp_family = AF_XDP;
+		addr.sxdp_flags = 0;
+		addr.sxdp_ifindex = if_index;
+		addr.sxdp_queue_id = 0;
+		addr.sxdp_shared_umem_fd = 0;
+		
 		int ret = bind(fd, reinterpret_cast<const sockaddr*>(&addr), sizeof(addr));
 		assert(ret == 0);
 	}
@@ -348,6 +359,38 @@ struct pkt_context {
 	struct udphdr* udp;
 };
 
+// struct containing information for ebpf kernel program
+struct xdp_program {
+	struct bpf_object* obj;
+	int prog_fd;
+	std::unordered_map<std::string, int> bpf_map;
+
+	void load(const char* path, int if_index) {
+		int ret;
+		struct bpf_prog_load_attr load_attr = {
+			.file = path,
+			.prog_type = BPF_PROG_TYPE_XDP
+		};
+
+		ret = bpf_prog_load_xattr(&load_attr, &obj, &prog_fd);
+		assert(ret == 0);
+
+		ret = bpf_set_link_xdp_fd(if_index, prog_fd, XDP_FLAGS_DRV_MODE);
+		assert(ret >= 0);
+	}
+
+	void update_map(const char* map_name, int key, int value) {
+		if(bpf_map.find(map_name) == bpf_map.end()) {
+			struct bpf_map *map = bpf_object__find_map_by_name(obj, map_name);
+			int map_fd = bpf_map__fd(map);
+			assert(map_fd >= 0);
+			bpf_map[map_name] = map_fd;
+		}
+
+		int ret = bpf_map_update_elem(bpf_map[map_name], &key, &value, 0);
+		assert(ret == 0);
+	}
+};
 
 static void allow_unlimited_locking() {
 	struct rlimit lim = {

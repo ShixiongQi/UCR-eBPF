@@ -18,8 +18,8 @@ SEC("xdp_sock")
 int xdp_sock_prog(struct xdp_md *ctx)
 {	
     int index = ctx->rx_queue_index;
-	if(bpf_map_lookup_elem(&xsks_map, &index)) {
-        return bpf_redirect_map(&xsks_map, index, 0);
+	if(index == 0 && bpf_map_lookup_elem(&xsks_map, &index)) {
+        return bpf_redirect_map(&xsks_map, 0, 0);
     }
 
 	return XDP_PASS;

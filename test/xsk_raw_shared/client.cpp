@@ -1,37 +1,5 @@
 #include "shared_definitions.hpp"
 
-// struct containing information for ebpf kernel program
-struct xdp_program {
-	struct bpf_object* obj;
-	int prog_fd;
-	std::unordered_map<std::string, int> bpf_map;
-
-	void load(const char* path, int if_index) {
-		int ret;
-		struct bpf_prog_load_attr load_attr = {
-			.file = path,
-			.prog_type = BPF_PROG_TYPE_XDP
-		};
-
-		ret = bpf_prog_load_xattr(&load_attr, &obj, &prog_fd);
-		assert(ret == 0);
-
-		ret = bpf_set_link_xdp_fd(if_index, prog_fd, XDP_FLAGS_DRV_MODE);
-		assert(ret >= 0);
-	}
-
-	void update_map(const char* map_name, int key, int value) {
-		if(bpf_map.find(map_name) == bpf_map.end()) {
-			struct bpf_map *map = bpf_object__find_map_by_name(obj, map_name);
-			int map_fd = bpf_map__fd(map);
-			assert(map_fd >= 0);
-			bpf_map[map_name] = map_fd;
-		}
-
-		int ret = bpf_map_update_elem(bpf_map[map_name], &key, &value, 0);
-		assert(ret == 0);
-	}
-};
 
 // create a client socket for ipc use
 int create_ipc_socket() {
@@ -50,6 +18,40 @@ int create_ipc_socket() {
 	return fd;
 }
 
+static int hanlde_eth(pkt_context* ctx) {
+	u16 proto = ntohs(ctx->eth->h_proto);
+	switch(proto) {
+		case ETH_P_IP:
+			ctx->ip = reinterpret_cast<iphdr*>(ctx->eth + 1);
+			std::cout << "IP packet\n";
+			return 0;
+		case ETH_P_IPV6:
+			ctx->ipv6 = reinterpret_cast<ipv6hdr*>(ctx->eth + 1);
+			std::cout << "IPV6 packet\n";
+			return 0;
+		default:
+			printf("packet type: %d\n", proto);
+			break;
+	}
+	return 0;
+}
+
+
+static void loop_receive(xdp_umem_shared* umem, xdp_sock* sock) {
+	while(true) {
+		xdp_desc desc;
+		u32 entries = sock->rxr.rx_deq(&desc, 1);
+		if(entries == 0) {
+			continue;
+		}
+		pkt_context ctx;
+		ctx.desc = &desc;
+		ctx.pkt = umem->get_data(desc.addr);
+		ctx.eth = reinterpret_cast<ethhdr*>(ctx.pkt);
+		hanlde_eth(&ctx);
+	}
+}
+
 int main(int argc, char* argv[]) {
 	if(argc != 2) {
 		printf("usage: client {interface_name}\n");
@@ -66,14 +68,23 @@ int main(int argc, char* argv[]) {
 
 	int client_fd = create_ipc_socket();
 	
+	xdp_program program;
+	program.load("./kern.o", if_index);
+
 	xdp_umem_shared* umem = new xdp_umem_shared();
 	umem->map_shared_memory();
 	umem->get_shared_fd(client_fd);
 
 	xdp_sock* sock = new xdp_sock();
-	sock->umem = umem;
+	int fd = socket(AF_XDP, SOCK_RAW, 0);
+    assert(fd != -1);
+	sock->fd = fd;
 	sock->create();
-	sock->bind_to_device(if_index);
+	sock->bind_to_device_shared(if_index, umem->fd);
 
+	program.update_map("xsks_map", 0, sock->fd);
 
+	loop_receive(umem, sock);
+
+	return 0;
 }

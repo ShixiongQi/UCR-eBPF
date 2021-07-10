@@ -196,9 +196,11 @@ static void serve_client(int client_fd, xdp_umem* umem) {
                 break;
             case RequestType::GET_PID_FD:
             {
-                *(reinterpret_cast<pid_t*>(buffer)) = getpid();
+                pid_t pid = getpid();
+                *(reinterpret_cast<pid_t*>(buffer)) = pid;
                 *(reinterpret_cast<int*>(buffer + sizeof(pid_t))) = umem->fd;
-                ret = send(client_fd, buffer, sizeof(pid_t), MSG_EOR);
+                // printf("pid: %d  fd: %d\n", pid, umem->fd);
+                ret = send(client_fd, buffer, sizeof(pid_t) + sizeof(int), MSG_EOR);
                 assert(ret != -1);
             }
                 break;
@@ -231,13 +233,36 @@ static int create_server_socket() {
 }
 
 int main(int argc, char* argv[]) {
+    if(argc != 2) {
+		printf("usage: manager {dummy_interface_name}\n");
+		return 0;
+	}
+    int if_index = if_nametoindex(argv[1]);
+	assert(if_index != 0);
+    // printf("if_index: %d\n", if_index);
+
     signal(SIGINT, int_exit);
 	signal(SIGTERM, int_exit);
 
     allow_unlimited_locking();
 
+    xdp_program program;
+	program.load("./kern.o", if_index);
+
     xdp_umem* umem = new xdp_umem();
     umem->create();
+
+    xdp_sock* sock = new xdp_sock();
+    sock->fd = umem->fd;
+    sock->create();
+    sock->bind_to_device(if_index);
+
+    // xdp_sock* sock2 = new xdp_sock();
+    // sock2->fd = socket(AF_XDP, SOCK_RAW, 0);
+    // assert(sock2->fd != -1);
+    // sock2->create();
+    // sock2->bind_to_device_shared(if_nametoindex("test"), umem->fd);
+
 
     std::thread thread_loop_enq_fr(loop_enq_fr, umem);
     std::thread thread_loop_deq_cr(loop_deq_cr, umem);
