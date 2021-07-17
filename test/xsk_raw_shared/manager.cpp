@@ -10,27 +10,27 @@ struct xdp_umem : xdp_umem_shared{
     std::mutex mtx;
     // the index for next free frame position
     u32 next_idx;
-    u64 free_frames[DEFAULT_NUM_FRAMES];
+    u64 free_frames[DEFAULT::NUM_FRAMES];
 
 	void create_shared_memory() {
-		int mem_fd = shm_open(DEFAULT_UMEM_FILE_NAME, O_RDWR | O_CREAT, 0777);
+		int mem_fd = shm_open(DEFAULT::UMEM_FILE_NAME, O_RDWR | O_CREAT, 0777);
 		assert(mem_fd >= 0);
 
-		int ret = ftruncate(mem_fd, DEFAULT_UMEM_SIZE);
+		int ret = ftruncate(mem_fd, DEFAULT::UMEM_SIZE);
     	assert(ret == 0);
 
 		// no need to worry about aligning
     	// on Linux, the mapping will be created at a nearby page boundary
-		frames = (u8*)mmap(nullptr, DEFAULT_UMEM_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED, mem_fd, 0);
+		frames = (u8*)mmap(nullptr, DEFAULT::UMEM_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED, mem_fd, 0);
 		assert(frames != MAP_FAILED);
 	}
 
 	void register_umem() {
 		xdp_umem_reg reg;
 		reg.addr = (u64)frames;
-		reg.len = DEFAULT_UMEM_SIZE;
-		reg.chunk_size = DEFAULT_FRAME_SIZE;
-		reg.headroom = DEFAULT_HEADROOM;
+		reg.len = DEFAULT::UMEM_SIZE;
+		reg.chunk_size = DEFAULT::FRAME_SIZE;
+		reg.headroom = DEFAULT::HEADROOM_SIZE;
 		reg.flags = 0;
 
 		int ret = setsockopt(fd, SOL_XDP, XDP_UMEM_REG, &reg, sizeof(reg));
@@ -39,8 +39,8 @@ struct xdp_umem : xdp_umem_shared{
 
 	// set size for fill ring and completion ring
 	void set_fr_cr_size() {
-		int fr_size = DEFAULT_FILL_RING_SIZE;
-		int cr_size = DEFAULT_COMPLETION_RING_SIZE;
+		int fr_size = DEFAULT::FILL_RING_SIZE;
+		int cr_size = DEFAULT::COMPLETION_RING_SIZE;
 
 		int ret = setsockopt(fd, SOL_XDP, XDP_UMEM_FILL_RING, &fr_size, sizeof(int));
 		assert(ret == 0);
@@ -57,31 +57,31 @@ struct xdp_umem : xdp_umem_shared{
 		assert(ret == 0);
 		
 		// fill ring
-		fr.map = (u8*)mmap(0, off.fr.desc + DEFAULT_FILL_RING_SIZE * sizeof(u64),
+		fr.map = (u8*)mmap(0, off.fr.desc + DEFAULT::FILL_RING_SIZE * sizeof(u64),
 							PROT_READ | PROT_WRITE,
 							MAP_SHARED |MAP_POPULATE,
 							fd, XDP_UMEM_PGOFF_FILL_RING);
 		assert(fr.map != MAP_FAILED);
 
-		fr.mask = DEFAULT_FILL_RING_SIZE - 1;
-		fr.size = DEFAULT_FILL_RING_SIZE;
-		fr.producer = reinterpret_cast<u32*>(fr.map + off.fr.producer);
-		fr.consumer = reinterpret_cast<u32*>(fr.map + off.fr.consumer);
-		fr.ring = reinterpret_cast<u64*>(fr.map + off.fr.desc);
-		fr.cached_cons = DEFAULT_FILL_RING_SIZE;
+		fr.mask = DEFAULT::FILL_RING_SIZE - 1;
+		fr.size = DEFAULT::FILL_RING_SIZE;
+		fr.producer = (u32*)(fr.map + off.fr.producer);
+		fr.consumer = (u32*)(fr.map + off.fr.consumer);
+		fr.ring = (u64*)(fr.map + off.fr.desc);
+		fr.cached_cons = DEFAULT::FILL_RING_SIZE;
 
 		// completion ring
-		cr.map = (u8*)mmap(0, off.cr.desc + DEFAULT_COMPLETION_RING_SIZE * sizeof(u64),
+		cr.map = (u8*)mmap(0, off.cr.desc + DEFAULT::COMPLETION_RING_SIZE * sizeof(u64),
 							PROT_READ | PROT_WRITE,
 							MAP_SHARED | MAP_POPULATE,
 							fd, XDP_UMEM_PGOFF_COMPLETION_RING);
 		assert(cr.map != MAP_FAILED);
 
-		cr.mask = DEFAULT_COMPLETION_RING_SIZE - 1;
-		cr.size = DEFAULT_COMPLETION_RING_SIZE;
-		cr.producer = reinterpret_cast<u32*>(cr.map + off.cr.producer);
-		cr.consumer = reinterpret_cast<u32*>(cr.map + off.cr.consumer);
-		cr.ring = reinterpret_cast<u64*>(cr.map + off.cr.desc);
+		cr.mask = DEFAULT::COMPLETION_RING_SIZE - 1;
+		cr.size = DEFAULT::COMPLETION_RING_SIZE;
+		cr.producer = (u32*)(cr.map + off.cr.producer);
+		cr.consumer = (u32*)(cr.map + off.cr.consumer);
+		cr.ring = (u64*)(cr.map + off.cr.desc);
 	}
 
     // allocate a umem frame, return the descriptor
@@ -99,8 +99,8 @@ struct xdp_umem : xdp_umem_shared{
     void free_frame(u64 frame) {
         mtx.lock();
         // based on my experiment, it seems that rx ring does not always return aligned address
-        frame = frame & (~(DEFAULT_FRAME_SIZE-1));
-        assert(next_idx < DEFAULT_NUM_FRAMES + 1);
+        frame = frame & (~(DEFAULT::FRAME_SIZE-1));
+        assert(next_idx < DEFAULT::NUM_FRAMES + 1);
 
         free_frames[next_idx++] = frame;
         //printf("free %p\n", (void*)frame);
@@ -109,9 +109,9 @@ struct xdp_umem : xdp_umem_shared{
 
     void create() {
 		// initialize index
-		next_idx = DEFAULT_NUM_FRAMES + 1;
-		for(int i=0; i < DEFAULT_NUM_FRAMES; i++) {
-			free_frames[i] = i * DEFAULT_FRAME_SIZE;
+		next_idx = DEFAULT::NUM_FRAMES + 1;
+		for(int i=0; i < DEFAULT::NUM_FRAMES; i++) {
+			free_frames[i] = i * DEFAULT::FRAME_SIZE;
 		}
 
         // since a socket descriptor is needed for creating umem, a dummy AF_XDP socket is created
@@ -130,7 +130,7 @@ struct xdp_umem : xdp_umem_shared{
 static void loop_enq_fr(xdp_umem* umem) {
     xdp_umem_queue *fr = &umem->fr;
     while(1) {
-        int free_entries = fr->fr_nb_free(1);
+        int free_entries = fr->fr_nb_free();
         if(free_entries == 0) {
             continue;
         }
@@ -148,7 +148,7 @@ static void loop_deq_cr(xdp_umem* umem) {
     struct xdp_umem_queue *cr = &umem->cr;
 
     while(1) {
-        int avail_entries = cr->cr_nb_avail(1);
+        int avail_entries = cr->cr_nb_avail();
         if(avail_entries == 0) {
             continue;
         }
@@ -164,8 +164,8 @@ static void loop_deq_cr(xdp_umem* umem) {
 }
 
 // the thread function that will serve a client's api call
-static void serve_client(int client_fd, xdp_umem* umem) {
-    u8 buffer[DEFAULT_SOCKET_MAX_BUFFER_SIZE];
+static void serve_client(int client_fd, xdp_umem* umem, xdp_program* program) {
+    u8 buffer[DEFAULT::SOCKET_MAX_BUFFER_SIZE];
 
     while(1) {
         int ret = recv(client_fd, buffer, sizeof(buffer), 0);
@@ -177,30 +177,40 @@ static void serve_client(int client_fd, xdp_umem* umem) {
 
         u32 request = *((u32*)buffer);
         assert(request >= 0);
-        assert(request < static_cast<u32>(RequestType::MAX));
-        RequestType type = static_cast<RequestType>(request);
+        assert(request < (u32)RequestType::MAX);
+        RequestType type = (RequestType)request;
         switch(type) {
             case RequestType::ALLOC:
             {
                 u64 frame = umem->alloc_frame();
-                *(reinterpret_cast<u64*>(buffer)) = frame;
+                *((u64*)buffer) = frame;
                 ret = send(client_fd, buffer, sizeof(u64), MSG_EOR);
                 assert(ret != -1);
             }
                 break;
             case RequestType::DEALLOC:
             {
-                u64 frame = *(reinterpret_cast<u64*>(buffer + sizeof(u32)));
+                u64 frame = *((u64*)(buffer + sizeof(u32)));
                 umem->free_frame(frame);
             }
                 break;
             case RequestType::GET_PID_FD:
             {
                 pid_t pid = getpid();
-                *(reinterpret_cast<pid_t*>(buffer)) = pid;
-                *(reinterpret_cast<int*>(buffer + sizeof(pid_t))) = umem->fd;
+                *((pid_t*)buffer) = pid;
+                *((int*)(buffer + sizeof(pid_t))) = umem->fd;
                 // printf("pid: %d  fd: %d\n", pid, umem->fd);
                 ret = send(client_fd, buffer, sizeof(pid_t) + sizeof(int), MSG_EOR);
+                assert(ret != -1);
+            }
+                break;
+            case RequestType::GET_BPF_PROGRAM:
+            {
+                pid_t pid = getpid();
+                *((int*)(buffer)) = pid;
+                *((int*)(buffer + 4)) = program->prog_fd;
+                *((int*)(buffer + 8)) = program->map_fd;
+                ret = send(client_fd, buffer, 12, MSG_EOR);
                 assert(ret != -1);
             }
                 break;
@@ -220,9 +230,9 @@ static int create_server_socket() {
 
     memset(&server_addr, 0, sizeof(server_addr));
     server_addr.sun_family = AF_UNIX;
-    strncpy(server_addr.sun_path, DEFAULT_SOCKET_PATH, sizeof(server_addr.sun_path) - 1);
+    strncpy(server_addr.sun_path, DEFAULT::SOCKET_PATH, sizeof(server_addr.sun_path) - 1);
 
-    unlink(DEFAULT_SOCKET_PATH);
+    unlink(DEFAULT::SOCKET_PATH);
     int ret = bind(server_fd, (struct sockaddr*)&server_addr, sizeof(server_addr));
     assert(ret >= 0);
 
@@ -234,7 +244,7 @@ static int create_server_socket() {
 
 int main(int argc, char* argv[]) {
     if(argc != 2) {
-		printf("usage: manager {dummy_interface_name}\n");
+		printf("usage: manager {interface_name}\n");
 		return 0;
 	}
     int if_index = if_nametoindex(argv[1]);
@@ -257,13 +267,6 @@ int main(int argc, char* argv[]) {
     sock->create();
     sock->bind_to_device(if_index);
 
-    // xdp_sock* sock2 = new xdp_sock();
-    // sock2->fd = socket(AF_XDP, SOCK_RAW, 0);
-    // assert(sock2->fd != -1);
-    // sock2->create();
-    // sock2->bind_to_device_shared(if_nametoindex("test"), umem->fd);
-
-
     std::thread thread_loop_enq_fr(loop_enq_fr, umem);
     std::thread thread_loop_deq_cr(loop_deq_cr, umem);
 
@@ -273,11 +276,11 @@ int main(int argc, char* argv[]) {
         int client_fd = accept(server_fd, NULL, NULL);
         assert(client_fd != -1);
         std::cout << "new client\n";
-        new std::thread(serve_client, client_fd, umem);
+        new std::thread(serve_client, client_fd, umem, &program);
     }
 
     close(server_fd);
-    unlink(DEFAULT_SOCKET_PATH);
+    unlink(DEFAULT::SOCKET_PATH);
 
     return 0;
 }
