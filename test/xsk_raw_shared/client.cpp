@@ -255,7 +255,8 @@ int main(int argc, char* argv[]) {
 
 	int bpf_map_index = getpid() % DEFAULT::BPF_MAP_MAX_ENTRIES;
 	printf("set xdp socket at map index %d\n", bpf_map_index);
-	program.update_map(bpf_map_index, sock->fd);
+	//program.update_map(bpf_map_index, sock->fd);
+	program.update_map(0, sock->fd);
 
 	if(strcmp(argv[2], "send") == 0) {
 		assert(argc >= 4);

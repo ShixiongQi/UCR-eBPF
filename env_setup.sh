@@ -8,6 +8,8 @@ git clone https://github.com/libbpf/libbpf.git
 cd libbpf/src
 make
 sudo make install
+echo "/usr/lib64/" | sudo tee -a /etc/ld.so.conf
+sudo ldconfig
 
 popd
 pushd $(pwd)

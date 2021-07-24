@@ -15,20 +15,23 @@ struct bpf_map_def SEC("maps") xsks_map = {
 	.max_entries = 1024
 };
 
+const char fmt[] = "got a packet %d\n";
 
 SEC("xdp_sock")
 int xdp_sock_prog(struct xdp_md *ctx)
 {
-	//bpf_trace_printk("got a packet \n", 20);
-	void* data = (void*)(long)ctx->data;
-	struct ethhdr* eth = data;
-	struct iphdr* ip = (struct iphdr*)(eth + 1);
-	struct udphdr* udp = (struct udphdr*)(ip + 1);
-	char* udp_start = (char*)udp;
-	if(udp_start + 4 > (char*)(long)ctx->data_end) {
-		return XDP_DROP;
-	}
-	int index = *((int*)(udp_start));
+	//bpf_trace_printk(fmt, 10);
+
+	// void* data = (void*)(long)ctx->data;
+	// struct ethhdr* eth = data;
+	// struct iphdr* ip = (struct iphdr*)(eth + 1);
+	// struct udphdr* udp = (struct udphdr*)(ip + 1);
+	// char* udp_start = (char*)udp;
+	// if(udp_start + 4 > (char*)(long)ctx->data_end) {
+	// 	return XDP_DROP;
+	// }
+	// int index = *((int*)(udp_start));
+	int index = 0;
 	if(bpf_map_lookup_elem(&xsks_map, &index)) {
         return bpf_redirect_map(&xsks_map, index, 0);
     }
