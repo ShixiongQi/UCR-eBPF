@@ -45,19 +45,19 @@ int main(int argc, char* argv[])
 	}
     int sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
 
-	int buffer_size = atoi(argv[2]);
-	assert(buffer_size > 0 && buffer_size <= 2048);
-
 	sockaddr_in addr;
     addr.sin_family = AF_INET;
     addr.sin_port = htons(8888);
     int ret = inet_aton(argv[1], &addr.sin_addr);
 	assert(ret != 0);
 
+	int buffer_size = atoi(argv[2]);
+	assert(buffer_size >= 8 && buffer_size <= 2048);
+
     char buf[2048];
     while(true)
     {
-		printf("time sent: %ld\n", xdp_time::get_time_nano());
+		*((long*)buf) = xdp_time::get_time_nano();
         ret = sendto(sock, buf, buffer_size, 0, (sockaddr*)&addr, sizeof(addr));
 		assert(ret != -1);
 

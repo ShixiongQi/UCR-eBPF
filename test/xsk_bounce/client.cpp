@@ -1,116 +1,131 @@
 #include "shared_definitions.h"
+#include "config.h"
+#include "queue.h"
+#include "sock.h"
+#include "umem.h"
+#include "util.h"
+#include "communication.h"
+#include "program.h"
+#include "nanotime.h"
 
+using namespace xdp;
 
-static void free_frame(u64 frame, int client_fd) {
-	u8 buffer[DEFAULT::SOCKET_MAX_BUFFER_SIZE];
-	*((u32*)buffer) = (u32)RequestType::DEALLOC;
-	*((u64*)(buffer + 4)) = frame;
-	int ret = send(client_fd, buffer, 12, MSG_EOR);
-	assert(ret != -1);
-}
-
-static u64 alloc_frame(int client_fd) {
-	u8 buffer[DEFAULT::SOCKET_MAX_BUFFER_SIZE];
-	*((u32*)buffer) = (u32)RequestType::ALLOC;
-	int ret = send(client_fd, buffer, 4, MSG_EOR);
-	assert(ret != -1);
-	ret = recv(client_fd, buffer, sizeof(buffer), 0);
-	assert(ret != -1);
-	assert(ret != 0);
-
-	return *((u64*)buffer);
-}
-
-
-static void loop_receive(xdp_umem* umem, xdp_sock* sock, int client_fd) {
-	while(true) {
-		xdp_desc desc;
-		u32 entries_available = sock->rxr.nb_avail();
-		if(entries_available == 0) {
-			continue;
-		}
-		sock->rxr.deq(&desc, 1);
-
-		u8* pkt = umem->get_data(desc.addr);
-		int dest_index = *((int*)pkt);
-		u64 frame = *((u64*)(pkt + 4));
-		printf("receive packet: dest_index: %d   frame: %lu   time: %ld\n", dest_index, frame, xdp_time::get_time_nano());
-
-		free_frame(desc.addr, client_fd);
-	}
-}
-
+// xdp map index that the current process is working on
+static int g_cur_index = 0;
+static bool g_last = false;
 
 #pragma pack(push, 1)
-struct test_pkt {
-	//ethhdr eth;
-	//iphdr ip;
-	//udphdr udp;
+struct timestamp
+{
+	u64 recv;
+	u64 send;
+};
+
+struct frame_pkt
+{
+	int cnt;
+	timestamp nano_timestamps[];
+};
+
+struct desc_pkt
+{
 	int dest_index;
 	u64 frame;
 };
 #pragma pack(pop)
 
-
-// make a packet
-// int(dest_index) u64(frame)
-// return the length of the packet
-static int make_packet(u8* start, int dest_index, u64 frame) {
-	test_pkt* pkt = (test_pkt*)start;
-
-	// // b2:c5:15:65:fa:ef
-	// pkt->eth.h_source[0] = 0xb2;
-	// pkt->eth.h_source[1] = 0xc5;
-	// pkt->eth.h_source[2] = 0x15;
-	// pkt->eth.h_source[3] = 0x65;
-	// pkt->eth.h_source[4] = 0xfa;
-	// pkt->eth.h_source[5] = 0xef;
-
-	// // 72:68:5e:62:17:ed
-	// pkt->eth.h_dest[0] = 0x72;
-	// pkt->eth.h_dest[1] = 0x68;
-	// pkt->eth.h_dest[2] = 0x5e;
-	// pkt->eth.h_dest[3] = 0x62;
-	// pkt->eth.h_dest[4] = 0x17;
-	// pkt->eth.h_dest[5] = 0xed;
-
-	//pkt->eth.h_proto = htons(ETH_P_IP);
-
-	pkt->dest_index = dest_index;
-	pkt->frame = frame;
-
-	return sizeof(test_pkt);
-}
-
-static void loop_send(xdp_umem* umem, xdp_sock* xdp, int dest_index, int client_fd) {
-	while(true) {
+static void loop_send(Umem* mem, Sock* xsk, Client* client)
+{
+	while(true)
+	{
 		sleep(1);
 
-		printf("send packet to map index %d\n", dest_index);
+		printf("send packet to map index%d\n", g_cur_index + 1);
 		
-		u32 entries = xdp->txr.nb_free();
-		if(entries == 0) {
+		u32 entries = xsk->txr.nb_free();
+		if(entries == 0)
+		{
 			continue;
 		}
 
 		// generate packet
-		u64 frame = alloc_frame(client_fd);
-		u8* pkt_start = umem->get_data(frame);
+		u64 frame = client->alloc_frame();
+		frame_pkt* frame_start = (frame_pkt*)mem->get_data(frame);
+		frame_start->cnt = 0;
+		frame_start->nano_timestamps[frame_start->cnt].recv = get_time_nano();
+		// frame_start->nano_timestamps[frame_start->cnt].send = get_time_nano();
+		// frame_start->cnt++;
+
+		// send packet metadata
+		u64 desc_frame = client->alloc_frame();
+		desc_pkt* desc_frame_start = (desc_pkt*)mem->get_data(desc_frame);
+		desc_frame_start->dest_index = g_cur_index + 1;
+		desc_frame_start->frame = frame;
+
+		
+		frame_start->nano_timestamps[frame_start->cnt].send = get_time_nano();
+		frame_start->cnt++;
 
         xdp_desc desc;
-        desc.addr = frame;
-		desc.len = make_packet(pkt_start, dest_index, frame);
-		xdp->txr.enq(&desc, 1);
+        desc.addr = desc_frame;
+		desc.len = sizeof(desc_pkt);
+		xsk->txr.enq(&desc, 1);
 
-		printf("send packet: dest_index: %d   frame: %lu  time: %ld\n", dest_index, frame, xdp_time::get_time_nano());
-		sendto(xdp->fd, NULL, 0, MSG_DONTWAIT, NULL, 0);
+		
+		sendto(xsk->fd, NULL, 0, MSG_DONTWAIT, NULL, 0);
+	}
+}
+
+static void loop_receive(Umem* mem, Sock* xsk, Client* client) 
+{
+	while(true) 
+	{
+		xdp_desc desc;
+		u32 entries_available = xsk->rxr.nb_avail();
+		if(entries_available == 0) 
+		{
+			continue;
+		}
+		xsk->rxr.deq(&desc, 1);
+
+		desc_pkt* desc_frame_start = (desc_pkt*)mem->get_data(desc.addr);
+		frame_pkt* frame_start = (frame_pkt*)mem->get_data(desc_frame_start->frame);
+
+		frame_start->nano_timestamps[frame_start->cnt].recv = get_time_nano();
+		// extra processing logic can be here
+		// ....
+		frame_start->nano_timestamps[frame_start->cnt].send = get_time_nano();
+		frame_start->cnt++;
+
+		if(!g_last)
+		{
+			desc_frame_start->dest_index++;
+			xsk->txr.enq(&desc, 1);
+
+			sendto(xsk->fd, NULL, 0, MSG_DONTWAIT, NULL, 0);
+		}
+		else
+		{
+			timestamp& ts = frame_start->nano_timestamps[0];
+			printf("recv: %lu  send: %lu\n", ts.recv, ts.send);
+
+			for(int i=1; i<frame_start->cnt; i++)
+			{
+				timestamp& last_ts = frame_start->nano_timestamps[i-1];
+				timestamp& ts = frame_start->nano_timestamps[i];
+				printf("recv: %lu  send: %lu  delta: %lu\n", ts.recv, ts.send, ts.recv - last_ts.send);
+			}
+
+			client->free_frame(desc_frame_start->frame);
+			client->free_frame(desc.addr);
+		}
 	}
 }
 
 
 int main(int argc, char* argv[]) {
-	if(argc < 3) {
-		printf("usage: client {interface_name} {send/recv} [bpf_key]\n");
+	if(argc < 4) {
+		printf("usage: client {interface_name} {send/recv} [bpf_key] --last\n");
 		return 0;
 	}
 	int if_index = if_nametoindex(argv[1]);
@@ -122,32 +137,40 @@ int main(int argc, char* argv[]) {
 
     allow_unlimited_locking();
 
-    Socket sock;
-    sock.create_client_socket();
+    Client client;
+	client.create();
 	
-	xdp_program program;
-	program.get_shared(sock);
+	Program program;
+	client.get_manager_xdp_prog_fd(&program.prog_fd, &program.map_fd);
 
-	xdp_umem* umem = new xdp_umem();
-	umem->map_shared_memory();
-	umem->get_shared_fd(sock);
+	Umem* mem = new Umem();
+	mem->map_memory();
+	mem->fd = client.get_manager_xsk_fd();
 
-	xdp_sock* xdp = new xdp_sock();
-	xdp->fd = socket(AF_XDP, SOCK_RAW, 0);
-    assert(xdp->fd != -1);
-	xdp->create();
-	xdp->bind_to_device_shared(if_index, umem->fd);
+	Sock* sock = new Sock();
+	sock->fd = socket(AF_XDP, SOCK_RAW, 0);
+	assert(sock->fd != -1);
+	sock->create();
+	sock->bind_to_device(if_index, true, mem->fd);
 
-	int bpf_map_index = getpid() % DEFAULT::BPF_MAP_MAX_ENTRIES;
-	printf("set xdp socket at map index %d\n", bpf_map_index);
-	program.update_map(bpf_map_index, xdp->fd);
 
-	if(strcmp(argv[2], "send") == 0) {
-		assert(argc >= 4);
+	g_cur_index = atoi(argv[3]);
+	printf("set xdp socket at map index %d\n", g_cur_index);
+	program.update_map(g_cur_index, sock->fd);
 
-		loop_send(umem, xdp, atoi(argv[3]), sock);
-	}else if(strcmp(argv[2], "recv") == 0) {
-		loop_receive(umem, xdp, sock);
+	if(argc >= 5 && strcmp("--last", argv[4]) == 0)
+	{
+		g_last = true;
+		printf("this is the last endpoint in chain\n");
+	}
+
+	if(strcmp(argv[2], "send") == 0)
+	{
+		loop_send(mem, sock, &client);
+	}
+	else if(strcmp(argv[2], "recv") == 0) 
+	{
+		loop_receive(mem, sock, &client);
 	}
 
 	return 0;

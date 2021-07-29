@@ -59,7 +59,9 @@ int main(int argc, char* argv[])
     while(true)
     {
         ret = recvfrom(server_sock, buf, 2048, 0, nullptr, nullptr);
-        printf("time arrived: %ld\n", xdp_time::get_time_nano());
+		long prev = *((long*)buf);
+		long now = xdp_time::get_time_nano();
+        printf("delta time: %ld\n", now - prev);
         assert(ret != -1);
     }
 
