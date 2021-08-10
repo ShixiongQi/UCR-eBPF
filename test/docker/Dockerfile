@@ -1,4 +1,4 @@
-FROM python:3.7-slim
+FROM ubuntu:20.04
 RUN apt update
 RUN apt install -y iproute2
 ENV LD_LIBRARY_PATH=/xdp

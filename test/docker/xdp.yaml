@@ -4,13 +4,38 @@ metadata:
   name: xdp
 spec:
   shareProcessNamespace: true
+  volumes:
+    - name: xdp-vol
+      emptyDir: {}
+     
   containers:
     - name: xdp-manager
-      image: python:3.7-slim
+      image: 127.0.0.1:5000/xdp
+      volumeMounts:
+        - name: xdp-vol
+          mountPath: /xdp
+      securityContext:
+        privileged: true
       command: ["/bin/bash", "-c", "--"]
-      args: ["while true; do sleep 30; donw;"]
+      args: ["while true; do sleep 30; done;"]
+
     - name: xdp-client
-      image: python:3.7-slim
+      image: 127.0.0.1:5000/xdp
+      volumeMounts:
+        - name: xdp-vol
+          mountPath: /xdp
+      securityContext:
+        privileged: true
       command: ["/bin/bash", "-c", "--"]
-      args: ["while true; do sleep 30; donw;"]
-      
+      args: ["while true; do sleep 30; done;"]
+
+  initContainers:
+    - name: xdp-init
+      image: 127.0.0.1:5000/xdp_init
+      volumeMounts:
+        - name: xdp-vol
+          mountPath: /xdp
+      securityContext:
+        capabilities:
+          add:
+            - NET_ADMIN
