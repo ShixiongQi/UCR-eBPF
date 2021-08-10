@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: xdp
+spec:
+  shareProcessNamespace: true
+  containers:
+    - name: xdp-manager
+      image: python:3.7-slim
+      command: ["/bin/bash", "-c", "--"]
+      args: ["while true; do sleep 30; donw;"]
+    - name: xdp-client
+      image: python:3.7-slim
+      command: ["/bin/bash", "-c", "--"]
+      args: ["while true; do sleep 30; donw;"]
+      
