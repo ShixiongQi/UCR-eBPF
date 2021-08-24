@@ -23,7 +23,7 @@ namespace xdp
         constexpr int HEADROOM_SIZE = 0;
         constexpr int UMEM_FLAGS = 0;
 
-        constexpr const char* SOCKET_PATH = "/xdp/share_umem.socket";
+        constexpr const char* SOCKET_PATH = "/tmp/share_umem.socket";
         constexpr int SOCKET_MAX_BUFFER_SIZE = 32;
 
         constexpr int BPF_MAP_MAX_ENTRIES = 1024;

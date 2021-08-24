@@ -1,0 +1,20 @@
+---
+apiVersion: serving.knative.dev/v1
+kind: Service
+metadata:
+  name: xdp
+  namespace: default
+spec:
+  template:
+    spec:
+      containers:
+      - name: xdp-manager
+        image: 127.0.0.1:5000/xdp:latest
+        ports:
+          - containerPort: 80
+        securityContext:
+          privileged: true
+      - name: xdp-client
+        image: 127.0.0.1:5000/xdp:latest
+        securityContext:
+          privileged: true
