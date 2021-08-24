@@ -10,7 +10,3 @@ make
 sudo make install
 echo "/usr/lib64/" | sudo tee -a /etc/ld.so.conf
 sudo ldconfig
-
-popd
-pushd $(pwd)
-git clone https://github.com/xdp-project/xdp-tutorial.git

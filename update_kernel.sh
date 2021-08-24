@@ -13,7 +13,6 @@ cd linux-5.10.48/
 cp -v /boot/config-$(uname -r) .config
 sudo apt update
 sudo apt-get -y install build-essential libncurses-dev bison flex libssl-dev libelf-dev
-make menuconfig
 scripts/config --disable SYSTEM_TRUSTED_KEYS
 make -j $(nproc)
 
