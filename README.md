@@ -16,12 +16,12 @@ Assume the temporary filesystem mount point is default (/mydata), please run
 sudo chown -R $(id -u):$(id -g) /mydata
 cd /mydata
 git clone https://github.com/ShixiongQi/UCR-eBPF.git
-cd cd /mydata/UCR-eBPF/
+cd /mydata/UCR-eBPF/
 git checkout test
 ```
 
 ## 3. Update the system(both kernel and distribution)
-Update the system using the script in the folder "/mydata/UCR-eBPF/":
+Update the system using the script in the folder `/mydata/UCR-eBPF/`:
 ```
 cd /mydata/UCR-eBPF/
 ./update_system.sh
@@ -66,7 +66,7 @@ cd /mydata/UCR-eBPF/test/xsk_bounce/
 ```
 cd /mydata/UCR-eBPF/test/xsk_bounce/
 cp bounce_kern.o bounce rx_kern.o manager client libbpfclient.so ../knative/
-sudo apt-get insall golang-go
+sudo apt-get install golang-go
 ```
 - Running the test. Please open 5 terminals and run the following commands.
   - Terminal 1
