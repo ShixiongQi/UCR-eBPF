@@ -27,7 +27,7 @@ cd /mydata/UCR-eBPF/
 ./update_system.sh
 ```
 - If there is an option, you can choose to use the maintainer's version.
-- After the update, lease reboot the machine using ```sudo reboot```.
+- After the update, please reboot the machine using ```sudo reboot```.
 - After reboot, run the following command:
 ```
 sudo apt-get autoremove
