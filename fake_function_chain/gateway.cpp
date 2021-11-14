@@ -36,6 +36,7 @@ int main(int argc, char* argv[])
         ctx.next_idx--;
         ctx.send(ctx.free_frames[ctx.next_idx]);
         printf("send\n");
+        printf("[completion ring] consumer: %d producer: %d\n", *ctx.cr.consumer, *ctx.cr.producer);
     }
 
 

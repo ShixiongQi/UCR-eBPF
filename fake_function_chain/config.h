@@ -8,7 +8,7 @@ namespace fc
         // the size of a single frame
         constexpr int FRAME_BYTES = 4096;
         // the size of a packet
-        constexpr int PKT_BYTES = 4000;
+        constexpr int PKT_BYTES = 20;
         // the size of fill ring
         constexpr int FILL_RING_SIZE = 1024;
         // the size of completion ring

@@ -86,8 +86,11 @@ namespace fc
         desc.addr = frame;
         desc.len = CONFIG::PKT_BYTES;
         txr.enq(&desc, 1);
-
+        printf("consumer: %d producer: %d\n", *txr.consumer, *txr.producer);
         sendto(af_xdp_fd, NULL, 0, MSG_DONTWAIT, NULL, 0);
+        printf("consumer: %d producer: %d\n", *txr.consumer, *txr.producer);
+
+
     }
 
     int Context::receive()
@@ -257,6 +260,11 @@ namespace fc
 
     void GatewayContext::init(const char* if_name)
     {
+        for(int i=0; i<CONFIG::NUM_FRAMES; i++)
+        {
+            free_frames[i] = i * CONFIG::FRAME_BYTES;
+        }
+
         int ret;
         // load program
         struct bpf_object* obj;
