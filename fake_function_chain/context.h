@@ -51,10 +51,10 @@ namespace fc
         // update the ebpf map
         void update_ebpf_map(int key, int value);
 
-        void send(int frame);
+        void send(u64 frame);
 
         // pull the rx ring and get a frame
-        int receive();
+        u64 receive();
     };
 
     // return the length of the packet after processing
@@ -66,7 +66,7 @@ namespace fc
         ICommunicatorClient* communicator;
         void get_shm();
 
-        void init(const char* if_name);
+        void init(const char* if_name, int function_id);
 
         void handleRequests(cb_handler handler);
     };
@@ -85,7 +85,7 @@ namespace fc
         umem_queue cr;
         
         // the index for next free frame position
-        u32 next_idx = CONFIG::NUM_FRAMES + 1;
+        u32 next_idx = CONFIG::NUM_FRAMES;
         u64 free_frames[CONFIG::NUM_FRAMES];
 
         // allocate shared memory

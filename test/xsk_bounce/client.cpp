@@ -70,7 +70,7 @@ static void loop_send(Umem* mem, Sock* xsk, Client* client)
         desc.addr = desc_frame;
 		desc.len = sizeof(desc_pkt);
 		xsk->txr.enq(&desc, 1);
-
+		printf("[tx ring] consumer: %d producer: %d\n", *xsk->txr.consumer, *xsk->txr.producer);
 		
 		sendto(xsk->fd, NULL, 0, MSG_DONTWAIT, NULL, 0);
 	}

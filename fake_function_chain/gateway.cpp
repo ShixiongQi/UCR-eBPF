@@ -4,7 +4,10 @@
 #include "util.h"
 #include "communicator.h"
 #include "context.h"
+#include "meta.h"
+#include "nanotime.h"
 
+using fc::Meta;
 
 int main(int argc, char* argv[])
 {
@@ -29,49 +32,41 @@ int main(int argc, char* argv[])
 
     std::thread(&CommunicatorServer::serve_client, &server).detach();
     
-
+    int tag = 1;
     while(true)
     {
-        sleep(1);
-        ctx.next_idx--;
-        ctx.send(ctx.free_frames[ctx.next_idx]);
+        u64 frame = ctx.receive();
+        u64 aligned_frame = frame - fc::CONFIG::HEADROOM_SIZE;
+        u8* data = ctx.get_data(aligned_frame);
+        
+        struct Meta* meta = (struct Meta*)data;
+
+        meta->magic = CONFIG::magic;
+        meta->next_function = 1;
+        meta->tag = tag++;
+
+        meta->eth.h_dest[0] = 0x7a;
+        meta->eth.h_dest[1] = 0x74;
+        meta->eth.h_dest[2] = 0x54;
+        meta->eth.h_dest[3] = 0x65;
+        meta->eth.h_dest[4] = 0x6a;
+        meta->eth.h_dest[5] = 0xdb;
+
+        meta->eth.h_source[0] = 0x32;
+        meta->eth.h_source[1] = 0xf4;
+        meta->eth.h_source[2] = 0x94;
+        meta->eth.h_source[3] = 0x15;
+        meta->eth.h_source[4] = 0x5b;
+        meta->eth.h_source[5] = 0x83;
+
+        meta->eth.h_proto = 0;
+
+        ctx.send(aligned_frame);
+
+        printHex(data, 50);
         printf("send\n");
         printf("[completion ring] consumer: %d producer: %d\n", *ctx.cr.consumer, *ctx.cr.producer);
     }
-
-
-    // Program prog;
-	// prog.load("./rx_kern.o", if_index);
-
-    // UmemManager* mem = new UmemManager();
-    // mem->create();
-
-    // Sock* s = new Sock();
-    // s->fd = mem->fd;
-    // s->create();
-    // s->bind_to_device(if_index);
-
-    // std::thread(&UmemManager::loop_enq_fr, mem).detach();
-    // std::thread(&UmemManager::loop_deq_cr, mem).detach();
-
-    // ListeningServer listenServer;
-    // listenServer.create();
-
-    // std::cout << "waiting for connections\n";
-    // while(1)
-    // {
-    //     int client_fd = accept(listenServer, NULL, NULL);
-    //     assert(client_fd != -1);
-    //     std::cout << "new client\n";
-
-    //     Server* server = new Server();
-    //     server->fd = client_fd;
-    //     server->create();
-
-    //     std::thread(&Server::serve_client, server, mem, &prog).detach();
-    // }
-
-    // listenServer.close();
 
     return 0;
 }

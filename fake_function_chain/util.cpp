@@ -51,5 +51,6 @@ namespace fc
             putchar(getHexDigit(x%16));
             putchar(' ');
         }
+        putchar('\n');
     }
 }

@@ -172,6 +172,7 @@ namespace xdp
             }
             assert(avail_entries == 1);
 
+            printf("[completion ring] consumer: %d producer: %d\n", *cr.consumer, *cr.producer);
             // avail_entries == 1
             u64 frame;
             int ret = cr.deq(&frame, 1);

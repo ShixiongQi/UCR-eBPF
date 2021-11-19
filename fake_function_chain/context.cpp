@@ -2,7 +2,6 @@
 #include "context.h"
 #include "util.h"
 
-
 namespace fc
 {
     int Context::nametoindex(const char* if_name)
@@ -80,20 +79,28 @@ namespace fc
         assert(ret == 0);
     }
 
-    void Context::send(int frame)
+    void Context::send(u64 frame)
     {
-        xdp_desc desc;
-        desc.addr = frame;
-        desc.len = CONFIG::PKT_BYTES;
-        txr.enq(&desc, 1);
-        printf("consumer: %d producer: %d\n", *txr.consumer, *txr.producer);
-        sendto(af_xdp_fd, NULL, 0, MSG_DONTWAIT, NULL, 0);
-        printf("consumer: %d producer: %d\n", *txr.consumer, *txr.producer);
+        printf("send frame %lu\n", frame);
+        while(true)
+        {
+            u32 free_entries = txr.nb_free();
+            if(free_entries == 0) {
+                continue;
+            }
 
+            xdp_desc desc;
+            desc.addr = frame;
+            desc.len = CONFIG::PKT_BYTES;
+            txr.enq(&desc, 1);
 
+            sendto(af_xdp_fd, NULL, 0, MSG_DONTWAIT, NULL, 0);
+            printf("[tx ring] consumer: %d producer: %d\n", *txr.consumer, *txr.producer);
+            return;
+        }
     }
 
-    int Context::receive()
+    u64 Context::receive()
     {
         while(true)
         {
@@ -105,6 +112,7 @@ namespace fc
 
             xdp_desc desc;
             rxr.deq(&desc, 1);
+            printf("receive frame %llu\n", desc.addr);
             return desc.addr;
         }
     }
@@ -124,7 +132,7 @@ namespace fc
         assert(data != (u8*)-1);
     }
 
-    void FunctionContext::init(const char* if_name)
+    void FunctionContext::init(const char* if_name,  int function_id)
     {
         get_shm();
         communicator->get_bpf_program_map_fd(&prog_fd, &map_fd);
@@ -132,6 +140,8 @@ namespace fc
         get_rxr_txr();
 
         bind_to_device(if_name, true, communicator->get_af_xdp_fd());
+
+        update_ebpf_map(function_id, af_xdp_fd);
     }
 
 
@@ -139,12 +149,12 @@ namespace fc
     {
         while(true)
         {
-            int frame = receive();
+            u64 frame = receive();
             u8* pkt = get_data(frame);
 
             handler(pkt);
 
-            //send(frame);
+            send(frame);
         }
     }
 
@@ -204,7 +214,8 @@ namespace fc
         fr.producer = (u32*)(fr.map + off.fr.producer);
         fr.consumer = (u32*)(fr.map + off.fr.consumer);
         fr.ring = (u64*)(fr.map + off.fr.desc);
-        fr.cached_cons = CONFIG::FILL_RING_SIZE;
+        fr.cached_prod = *fr.producer;
+        fr.cached_cons = *fr.consumer;
 
         // completion ring
         cr.map = (u8*)mmap(0, off.cr.desc + CONFIG::COMPLETION_RING_SIZE * sizeof(u64),
@@ -218,6 +229,8 @@ namespace fc
         cr.producer = (u32*)(cr.map + off.cr.producer);
         cr.consumer = (u32*)(cr.map + off.cr.consumer);
         cr.ring = (u64*)(cr.map + off.cr.desc);
+        cr.cached_prod = *cr.producer;
+        cr.cached_cons = *cr.consumer;
     }
 
     void GatewayContext::enq_fr_full()
@@ -286,12 +299,12 @@ namespace fc
         // setup shared memory and rings
         alloc_shm();
         register_umem();
-        get_fr_cr();
-        enq_fr_full();
         get_rxr_txr();
+        get_fr_cr();
 
         bind_to_device(if_name);
 
+        enq_fr_full();
         update_ebpf_map(0, af_xdp_fd);
     }
 }
