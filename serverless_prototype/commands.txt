@@ -1,0 +1,20 @@
+ sudo bpftool -p map show id 125
+ sudo bpftool map dump name sock_map
+ sudo bpftool map lookup name sock_map key 00 00 00 00
+
+ sudo bpftool -p prog show
+ sudo bpftool prog load sk_msg_kern.o "/sys/fs/bpf/sk_msg_kern" type sk_msg
+ clang -O2 -emit-llvm -c rx_kern.c -o - | llc -march=bpf -filetype=obj -o rx_kern.o
+ sudo cat /sys/kernel/debug/tracing/trace_pipe
+
+ sudo ip netns add test
+ sudo ip link add dev test type veth peer name test1 netns test
+
+ sudo ip link set dev test up
+ sudo ip addr add dev test 10.0.0.1/24
+
+ sudo ip link set dev test1 up
+ sudo ip addr add dev test1 10.0.0.2/24
+
+
+ sudo ip netns exec test bash
