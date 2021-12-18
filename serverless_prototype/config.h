@@ -33,8 +33,6 @@ namespace CONFIG
 #define GET_SHM_SEGMENT_ID "get_shm_segment_id"
 // int ()
 #define GET_GATEWAY_PID "get_gateway_pid"
-// int ()
-#define ALLOCATE_FUNCTION_ID "allocate_function_id"
 // void (int fun_pid, int fun_sk_msg_sock_fd, int key)
 #define UPDATE_SOCKMAP "update_sk_msg_sockmap"
 
@@ -44,3 +42,10 @@ inline u64 get_aligned_frame(u64 frame)
 {
     return frame & (~(CONFIG::FRAME_BYTES-1));
 }
+
+struct Meta{
+    // the id of next node that will process the data
+    int next;
+    long timestamp;
+    long frame;
+};

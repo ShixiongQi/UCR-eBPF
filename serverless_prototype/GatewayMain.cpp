@@ -6,12 +6,8 @@
 #include <bits/stdc++.h>
 #include <rpc/server.h>
 #include "config.h"
-#include "UmemServer.h"
-#include "SkmsgServer.h"
+#include "Server.h"
 #include "util.h"
-#include "nanotime.h"
-
-int next_id = 1;
 
 int main(int argc, char* argv[]) {
     if(argc != 3) {
@@ -29,23 +25,11 @@ int main(int argc, char* argv[]) {
     // add rpc server handlers
     rpc::server srv(CONFIG::SERVER_RPC_PORT);
     srv.bind(GET_GATEWAY_PID, [](){return (int)getpid();});
-    srv.bind(ALLOCATE_FUNCTION_ID, [&](){return next_id++;});
 
-    UmemServer umemServer;
-    umemServer.create(fc_name, if_name);
-    umemServer.add_rpc(&srv);
-
-    SkmsgServer skmsgServer;
-    skmsgServer.create();
-    skmsgServer.add_rpc(&srv);
-
-    umemServer.run_dispacher([&](u64 frame){
-        int buf[6];
-        buf[0] = 1;
-        *(long*)(&buf[2]) = get_time_nano();
-        int ret = send(skmsgServer.skmsg_socket_fd, &buf, sizeof(buf), 0);
-        assert(ret != -1);
-    });
+    Server server;
+    server.create(fc_name, if_name);
+    server.add_rpc(&srv);
+    server.run_async();
 
     srv.run();
 

@@ -6,27 +6,33 @@
 #include <bits/stdc++.h>
 #include <rpc/client.h>
 #include "config.h"
-#include "UmemClient.h"
-#include "SkmsgClient.h"
+#include "util.h"
+#include "Client.h"
 
 using std::string;
 
-int main() {
-    rpc::client client("10.0.0.2", CONFIG::SERVER_RPC_PORT);
+int main(int argc, char* argv[]) {
+    if(argc != 2) {
+        printf("Usage: FunMain {function_id}\n");
+        return 0;
+    }
+    // parse argument
+    int function_id = atoi(argv[1]);
 
-    UmemClient umemClient;
-    umemClient.create(&client);
+    signal(SIGINT, int_exit);
+    signal(SIGTERM, int_exit);
+    rpc::client rpcClient("127.0.0.1", CONFIG::SERVER_RPC_PORT);
 
-    int gateway_pid = client.call(GET_GATEWAY_PID).as<int>();
-    printf("gateway_pid = %d\n", gateway_pid);
+    Client client;
+    client.create(&rpcClient, function_id);
+    client.run([](u8* ptr, int len){
+        printf("ptr: %p, len: %d\n", ptr, len);
+        for(int i=0; i<len; i++) {
+            putchar(ptr[i]);
+        }
 
-    int function_id = client.call(ALLOCATE_FUNCTION_ID).as<int>();
-    printf("function id is %d\n", function_id);
-
-    SkmsgClient skmsgClient;
-    skmsgClient.create(&client, function_id, "10.0.0.2");
-
-    skmsgClient.run();
+        return 0;
+    });
 
     return 0;
 }

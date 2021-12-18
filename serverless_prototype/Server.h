@@ -8,7 +8,7 @@
 #include "queue.h"
 #include "config.h"
 
-class UmemServer {
+class Server {
 public:
     // the segment id of shared memory
     int segment_id;
@@ -18,10 +18,10 @@ public:
 public:
     // the fd of AF_XDP
     int af_xdp_fd;
-    // the fd of ebpf program
-    int prog_fd;
-    // the fd of ebpf map
-    int map_fd;
+    // the fd of xdp program
+    int xdp_prog_fd;
+    // the fd of xdp map
+    int xdp_map_fd;
 
     // the rx ring
     xdp_queue rxr;
@@ -38,6 +38,13 @@ public:
     u64 free_frames[CONFIG::NUM_FRAMES];
 
 public:
+    int skmsg_prog_fd;
+    int skmsg_map_fd;
+
+    int dummy_server_socket_fd;
+    int skmsg_socket_fd;
+
+public:
     void create(const char* fc_name, const char* if_name);
     void add_rpc(rpc::server* server);
     int nametoindex(const char* if_name);
@@ -49,7 +56,7 @@ public:
         return &data[addr];
     }
     // create a thread and run dispatcher in it
-    void run_dispacher(std::function<void(u64)> callback);
+    void run_async();
 };
 
 

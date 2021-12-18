@@ -17,8 +17,8 @@ SET (CMAKE_NM      "/usr/bin/llvm-nm")
 SET (CMAKE_OBJDUMP "/usr/bin/llvm-objdump")
 SET (CMAKE_RANLIB  "/usr/bin/llvm-ranlib")
 
-add_executable(gateway GatewayMain.cpp shared_includes.h queue.h config.h UmemServer.cpp UmemServer.h util.cpp util.h SkmsgServer.cpp SkmsgServer.h nanotime.cpp nanotime.h)
-add_executable(fun FunMain.cpp shared_includes.h config.h UmemClient.cpp UmemClient.h util.cpp util.h SkmsgClient.cpp SkmsgClient.h nanotime.cpp nanotime.h)
+add_executable(gateway GatewayMain.cpp shared_includes.h queue.h config.h util.cpp util.h nanotime.cpp nanotime.h Server.cpp Server.h)
+add_executable(fun FunMain.cpp shared_includes.h config.h util.cpp util.h nanotime.cpp nanotime.h Client.cpp Client.h)
 
 target_include_directories(gateway PRIVATE ${CMAKE_SOURCE_DIR}/../../rpclib/include)
 target_include_directories(fun PRIVATE ${CMAKE_SOURCE_DIR}/../../rpclib/include)
