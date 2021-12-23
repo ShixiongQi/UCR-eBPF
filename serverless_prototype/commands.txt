@@ -18,3 +18,20 @@
 
 
  sudo ip netns exec test bash
+
+
+ typedef void (*on_data_t)(char* data, int len, int id);
+ typedef void (*send_packet_t)(char* pkt, int len);
+
+ 1. void startup(on_data_t on_data, send_packet_t send_packet);
+ 2. void packet_arrived(char* data);
+ 3. void send_data(char* data, int len, int id);
+ 4. void close_tcp(int id);
+
+ Your library is supposed to export the above 4 functions.
+
+ Startup will be called once at the beginning of the application, two callbacks will be passed as argument. Both of the callbacks will be called by you at certain time.
+ When I get a packet, I will call function packet_arrived and you will handle the tcp protocol.
+ After the user have closed the tcp connection, you call on_data to notify me to do http processing.
+ During my processing, I may call send_data one or more times. You will generate packet containing the data with correct eth, ip, tcp headers and call send_packet to let me send a raw packet.
+ When processing is done, I will call close_tcp to let you close that connection. Again, you call send_packet to do it(for example, with FIN tcp flag).

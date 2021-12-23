@@ -255,6 +255,14 @@ int Server::nametoindex(const char *if_name) {
 u64 Server::receive() {
     while(true)
     {
+        struct pollfd pfd;
+        pfd.fd = af_xdp_fd;
+        pfd.events = POLLIN;
+
+        // Specifying a negative value in timeout means an infinite timeout.
+        int ret = poll(&pfd, 1, -1);
+        assert(ret != -1);
+
         u32 entries_available = rxr.nb_avail();
         if(entries_available == 0) {
             continue;
